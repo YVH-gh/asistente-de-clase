@@ -12,7 +12,7 @@ from modulo_ia_github import generar_recomendacion_ia, responder_chat_educativo
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="Sistema Escolar 360", layout="wide", page_icon="🎓")
 
-ruta_db = r'sistema_escolar.db'
+ruta_db = 'sistema_escolar.db'
 engine = create_engine(f'sqlite:///{ruta_db}')
 Session = sessionmaker(bind=engine)
 
@@ -303,3 +303,4 @@ elif modo == "📊 Dashboard & Chat IA":
 
 
 session.close()
+
