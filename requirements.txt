@@ -2,5 +2,5 @@ streamlit
 pandas
 sqlalchemy
 openai
-fpdf
+fpdf2
 openpyxl
