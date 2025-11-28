@@ -23,11 +23,6 @@ Base = declarative_base()
 # --- PASO 2: DEFINICIÓN DE TABLAS (MODELOS) ---
 
 class Alumno(Base):
-    __tablename__ = 'alumnos' # Nombre real de la tabla en la BD
-
-    # ... imports ...
-
-class Alumno(Base):
     __tablename__ = 'alumnos'
     
     id = Column(Integer, primary_key=True)
@@ -92,3 +87,4 @@ if __name__ == "__main__":
     print("✅ ¡Base de datos 'sistema_escolar.db' creada con éxito!")
 
     print("   Se han creado las tablas: Alumnos, Materias, Evaluaciones, Recomendaciones.")
+
