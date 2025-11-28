@@ -171,7 +171,38 @@ if modo == "⚙️ Administración General":
                         st.rerun()
 
     with tab2: # Alumnos
-        st.subheader("Registrar Nuevo Alumno")
+        with tab2: # Alumnos
+        st.subheader("Gestión de Alumnos")
+        
+        # --- NUEVO: BOTÓN DE EXPORTACIÓN ---
+        alumnos_todos = session.query(Alumno).all()
+        if alumnos_todos:
+            # Convertimos a DataFrame para facilitar la descarga
+            data_export = [{
+                "Nombre": a.nombre_completo,
+                "Año": a.año_escolar,
+                "DNI": a.dni,
+                "Email": a.email,
+                "Teléfono": a.telefono
+            } for a in alumnos_todos]
+            
+            df_exp = pd.DataFrame(data_export)
+            
+            # Convertimos a CSV
+            csv = df_exp.to_csv(index=False).encode('utf-8')
+            
+            col_exp1, col_exp2 = st.columns([3, 1])
+            with col_exp2:
+                st.download_button(
+                    label="⬇️ Descargar Lista (CSV)",
+                    data=csv,
+                    file_name="Lista_Alumnos_Completa.csv",
+                    mime="text/csv",
+                )
+        st.divider()
+        
+        # ------"Registrar Nuevo Alumno"----
+             st.subheader("Registrar Nuevo Alumno")
         with st.form("nuevo_alumno"):
             col1, col2 = st.columns(2)
             nom = col1.text_input("Nombre Completo *")
@@ -201,7 +232,7 @@ if modo == "⚙️ Administración General":
                         st.success("✅ Alumno guardado exitosamente.")
                 else:
                     st.warning("⚠️ Nombre y DNI son obligatorios.")
-
+    
     with tab3: # Notas
         try:
             alu = session.query(Alumno).all()
@@ -302,4 +333,5 @@ elif modo == "📊 Dashboard & Chat IA":
                         st.write(res)
 
 session.close()
+
 
