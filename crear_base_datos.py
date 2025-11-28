@@ -24,9 +24,18 @@ Base = declarative_base()
 
 class Alumno(Base):
     __tablename__ = 'alumnos' # Nombre real de la tabla en la BD
+
+    # ... imports ...
+
+class Alumno(Base):
+    __tablename__ = 'alumnos'
     
     id = Column(Integer, primary_key=True)
     nombre_completo = Column(String, nullable=False)
+    año_escolar = Column(Integer)
+    dni = Column(String, unique=True) # DNI único
+    email = Column(String)            # Opcional
+    telefono = Column(String)         # Opcional
     año_escolar = Column(Integer) # Ej: 2 (para 2do año)
     
     # Relación inversa: Permite decir alumno.evaluaciones para ver sus notas
@@ -81,4 +90,5 @@ if __name__ == "__main__":
     Base.metadata.create_all(engine)
     
     print("✅ ¡Base de datos 'sistema_escolar.db' creada con éxito!")
+
     print("   Se han creado las tablas: Alumnos, Materias, Evaluaciones, Recomendaciones.")
