@@ -171,13 +171,36 @@ if modo == "⚙️ Administración General":
                         st.rerun()
 
     with tab2: # Alumnos
+        st.subheader("Registrar Nuevo Alumno")
         with st.form("nuevo_alumno"):
-            n = st.text_input("Nombre")
-            a = st.number_input("Año", 1, 6)
-            if st.form_submit_button("Guardar") and n:
-                session.add(Alumno(nombre_completo=n, año_escolar=a))
-                session.commit()
-                st.success("Guardado.")
+            col1, col2 = st.columns(2)
+            nom = col1.text_input("Nombre Completo *")
+            dni = col2.text_input("DNI *")
+            
+            col3, col4, col5 = st.columns(3)
+            anio = col3.number_input("Año Escolar", 1, 6)
+            mail = col4.text_input("Email")
+            tel = col5.text_input("Teléfono")
+            
+            if st.form_submit_button("Guardar Alumno"):
+                if nom and dni:
+                    # Chequeo de seguridad: ¿Existe el DNI?
+                    existe = session.query(Alumno).filter_by(dni=dni).first()
+                    if existe:
+                        st.error("❌ Error: Ese DNI ya está registrado.")
+                    else:
+                        nuevo = Alumno(
+                            nombre_completo=nom, 
+                            año_escolar=anio,
+                            dni=dni,       # <--- Nuevo
+                            email=mail,    # <--- Nuevo
+                            telefono=tel   # <--- Nuevo
+                        )
+                        session.add(nuevo)
+                        session.commit()
+                        st.success("✅ Alumno guardado exitosamente.")
+                else:
+                    st.warning("⚠️ Nombre y DNI son obligatorios.")
 
     with tab3: # Notas
         try:
@@ -279,3 +302,4 @@ elif modo == "📊 Dashboard & Chat IA":
                         st.write(res)
 
 session.close()
+
