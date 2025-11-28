@@ -1,17 +1,17 @@
 import streamlit as st
 import pandas as pd
-import base64
-from fpdf import FPDF
-from sqlalchemy import create_engine, func
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
+from fpdf import FPDF  # Esto ahora usa fpdf2 gracias a requirements.txt
 from crear_base_datos import Alumno, Materia, Evaluacion
-# Importamos las DOS funciones de la IA
 from modulo_ia_github import generar_recomendacion_ia, responder_chat_educativo
 
-# --- CONFIGURACIÓN ---
+# --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Sistema Escolar 360", layout="wide", page_icon="🎓")
 
+# --- CONEXIÓN BASE DE DATOS ---
+# Usamos ruta relativa para que funcione en la nube y en local
 ruta_db = 'sistema_escolar.db'
 engine = create_engine(f'sqlite:///{ruta_db}')
 Session = sessionmaker(bind=engine)
@@ -19,76 +19,115 @@ Session = sessionmaker(bind=engine)
 def get_session():
     return Session()
 
+# --- ESTILOS CSS ---
+st.markdown("""
+<style>
+    .stChatMessage {background-color: #f0f2f6; border-radius: 10px;}
+    .metric-card {background-color: #f0f2f6; padding: 15px; border-radius: 10px;}
+</style>
+""", unsafe_allow_html=True)
 
+# --- 1. SISTEMA DE LOGIN (SEGURIDAD) ---
+def check_password():
+    if "PASSWORD_ACCESO" not in st.secrets:
+        return True # Si no hay clave configurada, pasa (modo desarrollo)
+
+    if "password_correcta" not in st.session_state:
+        st.session_state.password_correcta = False
+
+    if not st.session_state.password_correcta:
+        st.text_input("🔑 Contraseña de Acceso", type="password", on_change=password_entered, key="password_input")
+        return False
+    return True
+
+def password_entered():
+    if st.session_state["password_input"] == st.secrets["PASSWORD_ACCESO"]:
+        st.session_state.password_correcta = True
+        del st.session_state["password_input"]
+    else:
+        st.error("❌ Contraseña incorrecta")
+
+if not check_password():
+    st.stop()
+
+# --- 2. FUNCIÓN PDF AVANZADA (Soporte Emojis y Tildes) ---
 def crear_reporte_pdf(alumno, recomendaciones_ia_texto):
     class PDF(FPDF):
         def header(self):
-            self.set_font('Arial', 'B', 15)
-            self.cell(0, 10, 'Informe de Rendimiento Academico', 0, 1, 'C')
-            self.ln(5)
+            # Intentamos cargar la fuente externa 'fuente.ttf'
+            # Si falla (porque no se subió el archivo), usa Helvetica estándar
+            try:
+                self.add_font("MiFuente", "", "fuente.ttf")
+                self.set_font("MiFuente", "", 18)
+            except:
+                self.set_font("Helvetica", "B", 15)
+                
+            self.cell(0, 10, "Informe de Rendimiento Académico", new_x="LMARGIN", new_y="NEXT", align='C')
+            self.ln(10)
 
         def footer(self):
             self.set_y(-15)
-            self.set_font('Arial', 'I', 8)
-            self.cell(0, 10, f'Pagina {self.page_no()}', 0, 0, 'C')
+            self.set_font("Helvetica", "I", 8)
+            self.cell(0, 10, f'Página {self.page_no()}', align='C')
 
     pdf = PDF()
     pdf.add_page()
-    pdf.set_font("Arial", size=12)
     
-    # 1. Datos del Alumno
-    pdf.set_font("Arial", 'B', 14)
-    pdf.cell(0, 10, f"Alumno: {alumno.nombre_completo}", 0, 1)
-    pdf.set_font("Arial", size=12)
-    pdf.cell(0, 10, f"Ano Escolar: {alumno.año_escolar}", 0, 1)
+    # Configurar fuente para el cuerpo
+    try:
+        pdf.add_font("MiFuente", "", "fuente.ttf")
+        pdf.set_font("MiFuente", "", 12)
+    except:
+        pdf.set_font("Helvetica", "", 12)
+    
+    # DATOS DEL ALUMNO
+    pdf.set_font(size=14, style="")
+    pdf.cell(0, 10, f"Alumno: {alumno.nombre_completo}", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font(size=12)
+    pdf.cell(0, 10, f"Año Escolar: {alumno.año_escolar}º Año", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(5)
     
-    # 2. Tabla de Notas
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, "Historial de Evaluaciones:", 0, 1)
-    pdf.set_font("Arial", size=10)
+    # TABLA DE NOTAS
+    pdf.set_font(size=12, style="")
+    pdf.cell(0, 10, "Historial de Evaluaciones:", new_x="LMARGIN", new_y="NEXT")
     
-    # Encabezados tabla
-    pdf.set_fill_color(200, 220, 255)
-    pdf.cell(40, 10, "Materia", 1, 0, 'C', 1)
-    pdf.cell(40, 10, "Instancia", 1, 0, 'C', 1)
-    pdf.cell(20, 10, "Nota", 1, 0, 'C', 1)
-    pdf.cell(90, 10, "Comentario", 1, 1, 'C', 1)
+    # Encabezados
+    pdf.set_fill_color(240, 240, 240)
+    pdf.set_font(size=10)
+    pdf.cell(40, 10, "Materia", border=1, fill=True, align='C')
+    pdf.cell(50, 10, "Instancia", border=1, fill=True, align='C')
+    pdf.cell(20, 10, "Nota", border=1, fill=True, align='C')
+    pdf.cell(80, 10, "Comentario", border=1, fill=True, align='C', new_x="LMARGIN", new_y="NEXT")
     
     # Filas
     if alumno.evaluaciones:
         for ev in alumno.evaluaciones:
-            pdf.cell(40, 10, ev.materia.nombre[:20], 1)
-            pdf.cell(40, 10, ev.instancia[:20], 1)
-            pdf.cell(20, 10, str(ev.nota), 1, 0, 'C')
-            # El comentario puede ser largo, cortamos para que entre en una linea simple
-            comentario_corto = (ev.comentario[:45] + '...') if len(ev.comentario) > 45 else ev.comentario
-            pdf.cell(90, 10, comentario_corto, 1, 1)
+            # Limpiamos saltos de linea en comentarios para que no rompan la tabla
+            comentario_clean = ev.comentario.replace("\n", " ")[:50]
+            
+            pdf.cell(40, 10, str(ev.materia.nombre)[:25], border=1)
+            pdf.cell(50, 10, str(ev.instancia)[:30], border=1)
+            pdf.cell(20, 10, str(ev.nota), border=1, align='C')
+            pdf.cell(80, 10, comentario_clean, border=1, new_x="LMARGIN", new_y="NEXT")
     else:
-        pdf.cell(0, 10, "Sin evaluaciones registradas.", 1, 1)
+        pdf.cell(0, 10, "Sin registros.", border=1, new_x="LMARGIN", new_y="NEXT")
         
     pdf.ln(10)
 
-    # 3. Recomendaciones de la IA (Lo más valioso)
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, "Analisis del Asistente Virtual:", 0, 1)
-    pdf.set_font("Arial", 'I', 11)
-    
-    # Escribimos el texto que generó la IA (respetando saltos de línea)
-    pdf.multi_cell(0, 10, recomendaciones_ia_texto)
+    # RECOMENDACIÓN IA
+    pdf.set_font(size=12, style="")
+    pdf.cell(0, 10, "Análisis del Asistente Virtual:", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font(size=11)
+    # Multi_cell escribe párrafos largos ajustando el texto
+    pdf.multi_cell(0, 8, recomendaciones_ia_texto)
     
     pdf.ln(10)
-    pdf.set_font("Arial", size=10)
-    pdf.cell(0, 10, f"Reporte generado el: {datetime.now().strftime('%d/%m/%Y')}", 0, 1)
+    pdf.set_font(size=9)
+    fecha = datetime.now().strftime("%d/%m/%Y")
+    pdf.cell(0, 10, f"Generado el {fecha}", new_x="LMARGIN", new_y="NEXT")
 
-    return pdf.output(dest='S').encode('latin-1', 'replace') # Retorna los bytes del PDF
-
-# --- CSS PARA EL CHAT ---
-st.markdown("""
-<style>
-    .stChatMessage {background-color: #f0f2f6; border-radius: 10px;}
-</style>
-""", unsafe_allow_html=True)
+    # Retornamos los bytes del PDF
+    return bytes(pdf.output())
 
 # --- NAVEGACIÓN ---
 session = get_session()
@@ -96,211 +135,147 @@ st.sidebar.title("🏫 Menú Principal")
 modo = st.sidebar.radio("Ir a:", ["📊 Dashboard & Chat IA", "⚙️ Administración General"])
 
 # ==============================================================================
-# MODO 1: ADMINISTRACIÓN (CARGA Y GESTIÓN)
+# MODO 1: ADMINISTRACIÓN
 # ==============================================================================
 if modo == "⚙️ Administración General":
     st.title("⚙️ Panel de Control")
-    tab1, tab2, tab3, tab4 = st.tabs(["📚 GESTIÓN MATERIAS", "👤 Alumnos", "📝 Notas", "📂 Importar"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📚 Materias", "👤 Alumnos", "📝 Notas", "📂 Importar"])
 
-    # --- PESTAÑA 1: GESTIÓN DE MATERIAS (LO QUE PEDISTE) ---
-    with tab1:
-        st.subheader("Administrar Materias")
-        col_new, col_edit = st.columns(2)
-        
-        # 1. Crear Nueva Materia
-        with col_new:
-            st.info("➕ Crear Nueva Materia")
-            with st.form("add_materia"):
-                new_mat_name = st.text_input("Nombre de la Materia")
-                new_prof = st.text_input("Profesor Titular")
-                if st.form_submit_button("Crear Materia") and new_mat_name:
-                    existe = session.query(Materia).filter_by(nombre=new_mat_name).first()
-                    if not existe:
-                        session.add(Materia(nombre=new_mat_name, profesor_titular=new_prof))
+    with tab1: # Materias
+        st.subheader("Gestión de Materias")
+        c1, c2 = st.columns(2)
+        with c1:
+            with st.form("nueva_materia"):
+                nom = st.text_input("Nombre Materia")
+                prof = st.text_input("Profesor")
+                if st.form_submit_button("Crear"):
+                    if not session.query(Materia).filter_by(nombre=nom).first():
+                        session.add(Materia(nombre=nom, profesor_titular=prof))
                         session.commit()
-                        st.success(f"Materia '{new_mat_name}' creada.")
+                        st.success("Creada.")
                         st.rerun()
                     else:
-                        st.error("Esa materia ya existe.")
-
-        # 2. Editar / Borrar Materia Existente
-        with col_edit:
-            st.warning("✏️ Editar o Eliminar")
-            materias = session.query(Materia).all()
-            if materias:
-                materia_a_editar = st.selectbox("Selecciona Materia", [m.nombre for m in materias])
-                obj_materia = session.query(Materia).filter_by(nombre=materia_a_editar).first()
-                
-                nuevo_nombre = st.text_input("Nuevo Nombre", value=obj_materia.nombre)
-                nuevo_profe = st.text_input("Nuevo Profesor", value=obj_materia.profesor_titular)
-                
-                c1, c2 = st.columns(2)
-                if c1.button("💾 Guardar Cambios"):
-                    obj_materia.nombre = nuevo_nombre
-                    obj_materia.profesor_titular = nuevo_profe
-                    session.commit()
-                    st.success("Actualizado.")
-                    st.rerun()
-                
-                if c2.button("🗑️ ELIMINAR MATERIA", type="primary"):
-                    # Verificamos seguridad: ¿Tiene notas cargadas?
-                    if obj_materia.evaluaciones:
-                        st.error("⛔ No puedes eliminar esta materia porque tiene notas asociadas. Borra las notas primero.")
+                        st.error("Ya existe.")
+        with c2:
+            mats = session.query(Materia).all()
+            if mats:
+                sel = st.selectbox("Editar Materia", [m.nombre for m in mats])
+                obj = session.query(Materia).filter_by(nombre=sel).first()
+                if st.button("🗑️ Eliminar Materia"):
+                    if obj.evaluaciones:
+                        st.error("No se puede borrar: tiene notas asociadas.")
                     else:
-                        session.delete(obj_materia)
+                        session.delete(obj)
                         session.commit()
-                        st.success("Materia eliminada.")
+                        st.success("Eliminada.")
                         st.rerun()
 
-    # --- PESTAÑA 2: ALUMNOS (Carga Rápida) ---
-    with tab2:
-        with st.form("add_alumno"):
-            st.write("Nuevo Alumno")
-            nom = st.text_input("Nombre Completo")
-            anio = st.number_input("Año", 1, 6)
-            if st.form_submit_button("Guardar") and nom:
-                session.add(Alumno(nombre_completo=nom, año_escolar=anio))
+    with tab2: # Alumnos
+        with st.form("nuevo_alumno"):
+            n = st.text_input("Nombre")
+            a = st.number_input("Año", 1, 6)
+            if st.form_submit_button("Guardar") and n:
+                session.add(Alumno(nombre_completo=n, año_escolar=a))
                 session.commit()
-                st.success("Alumno guardado.")
+                st.success("Guardado.")
 
-    # --- PESTAÑA 3: CARGA DE NOTAS ---
-    with tab3:
-        alumnos_list = session.query(Alumno).all()
-        materias_list = session.query(Materia).all()
-        if alumnos_list and materias_list:
-            with st.form("add_nota"):
-                c_a, c_m = st.columns(2)
-                alu_sel = c_a.selectbox("Alumno", [a.nombre_completo for a in alumnos_list])
-                mat_sel = c_m.selectbox("Materia", [m.nombre for m in materias_list])
-                
-                instancia = st.text_input("Instancia (Ej: TP Final)")
-                nota = st.number_input("Nota", 0.0, 10.0, step=0.5)
-                comentario = st.text_area("Comentario")
-                
-                if st.form_submit_button("Guardar Nota"):
-                    a_id = session.query(Alumno).filter_by(nombre_completo=alu_sel).first().id
-                    m_id = session.query(Materia).filter_by(nombre=mat_sel).first().id
-                    
-                    session.add(Evaluacion(alumno_id=a_id, materia_id=m_id, instancia=instancia, nota=nota, comentario=comentario, fecha=datetime.now()))
-                    session.commit()
-                    st.success("Nota guardada.")
-        else:
-            st.warning("Carga alumnos y materias primero.")
+    with tab3: # Notas
+        try:
+            alu = session.query(Alumno).all()
+            mat = session.query(Materia).all()
+            if alu and mat:
+                with st.form("nota"):
+                    ca, cm = st.columns(2)
+                    a_sel = ca.selectbox("Alumno", [x.nombre_completo for x in alu])
+                    m_sel = cm.selectbox("Materia", [x.nombre for x in mat])
+                    inst = st.text_input("Instancia")
+                    nota = st.number_input("Nota", 0.0, 10.0, step=0.5)
+                    com = st.text_area("Comentario")
+                    if st.form_submit_button("Guardar"):
+                        obj_a = session.query(Alumno).filter_by(nombre_completo=a_sel).first()
+                        obj_m = session.query(Materia).filter_by(nombre=m_sel).first()
+                        session.add(Evaluacion(alumno_id=obj_a.id, materia_id=obj_m.id, instancia=inst, nota=nota, comentario=com, fecha=datetime.now()))
+                        session.commit()
+                        st.success("Nota guardada.")
+            else:
+                st.warning("Carga alumnos y materias primero.")
+        except:
+            st.error("Error cargando listas.")
 
-    # --- PESTAÑA 4: IMPORTACIÓN ---
-    with tab4:
-        st.write("Sube tu Excel (Columnas: Nombre, Año)")
-        archivo = st.file_uploader("Archivo", type=['xlsx', 'csv'])
-        if archivo and st.button("Importar"):
+    with tab4: # Importar
+        f = st.file_uploader("Excel (Nombre, Año)", type=["xlsx", "csv"])
+        if f and st.button("Importar"):
             try:
-                df = pd.read_excel(archivo) if archivo.name.endswith('xlsx') else pd.read_csv(archivo)
-                count = 0
-                for _, row in df.iterrows():
-                    if not session.query(Alumno).filter_by(nombre_completo=row['Nombre']).first():
-                        session.add(Alumno(nombre_completo=row['Nombre'], año_escolar=int(row['Año'])))
-                        count += 1
+                df = pd.read_excel(f) if f.name.endswith('xlsx') else pd.read_csv(f)
+                c = 0
+                for _, r in df.iterrows():
+                    if not session.query(Alumno).filter_by(nombre_completo=r['Nombre']).first():
+                        session.add(Alumno(nombre_completo=r['Nombre'], año_escolar=int(r['Año'])))
+                        c += 1
                 session.commit()
-                st.success(f"Importados {count} alumnos.")
+                st.success(f"Importados {c}.")
             except Exception as e:
                 st.error(f"Error: {e}")
 
 # ==============================================================================
-# MODO 2: DASHBOARD + CHAT IA
+# MODO 2: DASHBOARD + CHAT
 # ==============================================================================
 elif modo == "📊 Dashboard & Chat IA":
-    st.title("Dashboard del Alumno")
-    
+    st.title("🎓 Dashboard del Alumno")
     alumnos = session.query(Alumno).all()
     if alumnos:
         seleccion = st.sidebar.selectbox("🔍 Buscar Alumno:", [a.nombre_completo for a in alumnos])
         alumno = session.query(Alumno).filter_by(nombre_completo=seleccion).first()
         
-        # --- ENCABEZADO Y KPI ---
+        # KPI
         notas = [e.nota for e in alumno.evaluaciones]
-        promedio = sum(notas) / len(notas) if notas else 0
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Alumno", alumno.nombre_completo)
-        col2.metric("Promedio General", f"{promedio:.2f}")
-        col3.metric("Evaluaciones", len(notas))
+        prom = sum(notas)/len(notas) if notas else 0
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Alumno", alumno.nombre_completo)
+        c2.metric("Promedio", f"{prom:.2f}")
+        c3.metric("Evaluaciones", len(notas))
         st.divider()
 
-        
-        # --- GENERADOR DE REPORTE ---
-        col_btn_1, col_btn_2 = st.columns([3, 1])
-        with col_btn_2:
-            # Botón para generar el PDF
-            if st.button("📄 Preparar Informe PDF"):
-                # Primero, pedimos a la IA un resumen general para poner en el PDF
-                with st.spinner("Generando resumen ejecutivo con IA..."):
-                    resumen_ia = responder_chat_educativo(
-                        alumno.nombre_completo, 
-                        f"Promedio: {promedio}. Notas: {notas}", 
-                        "Escribe un párrafo de conclusión formal sobre el rendimiento de este alumno para los padres."
-                    )
-                
-                # Creamos el archivo en memoria
-                pdf_bytes = crear_reporte_pdf(alumno, resumen_ia)
-                
-                # Mostramos el botón de descarga real
-                st.download_button(
-                    label="⬇️ Descargar PDF Final",
-                    data=pdf_bytes,
-                    file_name=f"Reporte_{alumno.nombre_completo}.pdf",
-                    mime="application/pdf"
-                )
-        
-        # ... (Aquí sigue la sección de 'dividir la pantalla' con col_datos y col_chat)
+        # BOTÓN PDF
+        if st.button("📄 Descargar Informe PDF"):
+            with st.spinner("Generando análisis con IA..."):
+                # 1. Pedimos resumen a la IA
+                resumen = responder_chat_educativo(alumno.nombre_completo, str(notas), "Escribe una conclusión formal del rendimiento para los padres (máx 50 palabras).")
+                # 2. Creamos PDF
+                pdf_data = crear_reporte_pdf(alumno, resumen)
+                # 3. Botón descarga
+                st.download_button("⬇️ Guardar PDF", data=pdf_data, file_name=f"Informe_{alumno.nombre_completo}.pdf", mime="application/pdf")
 
-        # --- DIVIDIMOS LA PANTALLA: DATOS A LA IZQ, CHAT A LA DER ---
-        col_datos, col_chat = st.columns([2, 1])
-
-        with col_datos:
-            st.subheader("📉 Historial Académico")
+        # CONTENIDO PRINCIPAL
+        col_izq, col_der = st.columns([2, 1])
+        
+        with col_izq:
+            st.subheader("Historial")
             if alumno.evaluaciones:
-                df_show = pd.DataFrame([{
-                    "Fecha": e.fecha,
+                # Tabla simple
+                df = pd.DataFrame([{
+                    "Fecha": e.fecha, 
                     "Materia": e.materia.nombre,
-                    "Instancia": e.instancia,
                     "Nota": e.nota,
                     "Comentario": e.comentario
                 } for e in alumno.evaluaciones])
-                st.dataframe(df_show, use_container_width=True)
-                
-                # Gráfico rápido
-                st.line_chart(df_show.set_index("Fecha")["Nota"])
+                st.dataframe(df, use_container_width=True)
+                st.line_chart(df.set_index("Fecha")["Nota"])
             else:
-                st.info("Sin datos para mostrar gráficos.")
+                st.info("Sin datos.")
 
-        with col_chat:
-            st.subheader("💬 Chat con IA")
-            st.markdown("Pregunta sobre este alumno. La IA leerá sus notas.")
+        with col_der:
+            st.subheader("💬 Chat IA")
+            if "messages" not in st.session_state: st.session_state.messages = []
             
-            # Historial del chat (se borra al recargar, simple para prototipo)
-            if "messages" not in st.session_state:
-                st.session_state.messages = []
-
-            # Input del usuario
-            pregunta = st.chat_input(f"Ej: ¿Cómo va {alumno.nombre_completo} en Historia?")
-            
-            if pregunta:
-                # 1. Mostramos pregunta usuario
-                with st.chat_message("user"):
-                    st.write(pregunta)
-                
-                # 2. Preparamos el contexto para la IA (Le damos los datos crudos)
-                contexto_notas = ""
-                if alumno.evaluaciones:
-                    for ev in alumno.evaluaciones:
-                        contexto_notas += f"- En {ev.materia.nombre} ({ev.instancia}): Nota {ev.nota}. Comentario profe: {ev.comentario}\n"
-                else:
-                    contexto_notas = "El alumno no tiene notas registradas aún."
-
-                # 3. Llamamos a la IA (con Spinner para que se vea que piensa)
+            q = st.chat_input("Pregunta sobre el alumno...")
+            if q:
+                with st.chat_message("user"): st.write(q)
+                ctx = ""
+                for e in alumno.evaluaciones: ctx += f"- {e.materia.nombre}: {e.nota} ({e.comentario})\n"
                 with st.chat_message("assistant"):
-                    with st.spinner("Leyendo base de datos..."):
-                        respuesta = responder_chat_educativo(alumno.nombre_completo, contexto_notas, pregunta)
-                        st.write(respuesta)
-
+                    with st.spinner("Pensando..."):
+                        res = responder_chat_educativo(alumno.nombre_completo, ctx, q)
+                        st.write(res)
 
 session.close()
-
