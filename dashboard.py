@@ -170,13 +170,13 @@ if modo == "⚙️ Administración General":
                         st.success("Eliminada.")
                         st.rerun()
 
-    with tab2: # Alumnos
+    # --- PESTAÑA 2: ALUMNOS ---
+    with tab2: 
         st.subheader("Gestión de Alumnos")
         
-        # --- NUEVO: BOTÓN DE EXPORTACIÓN ---
+        # 1. BOTÓN DE EXPORTACIÓN (CSV)
         alumnos_todos = session.query(Alumno).all()
         if alumnos_todos:
-            # Convertimos a DataFrame para facilitar la descarga
             data_export = [{
                 "Nombre": a.nombre_completo,
                 "Año": a.año_escolar,
@@ -186,8 +186,6 @@ if modo == "⚙️ Administración General":
             } for a in alumnos_todos]
             
             df_exp = pd.DataFrame(data_export)
-            
-            # Convertimos a CSV
             csv = df_exp.to_csv(index=False).encode('utf-8')
             
             col_exp1, col_exp2 = st.columns([3, 1])
@@ -195,13 +193,15 @@ if modo == "⚙️ Administración General":
                 st.download_button(
                     label="⬇️ Descargar Lista (CSV)",
                     data=csv,
-                    file_name="Lista_Alumnos_Completa.csv",
+                    file_name="Lista_Alumnos.csv",
                     mime="text/csv",
                 )
         st.divider()
+
+        # 2. FORMULARIO DE REGISTRO (Aquí estaba el error de indentación)
+        # Fíjate que este st.subheader está alineado con el st.subheader de arriba
+        st.subheader("Registrar Nuevo Alumno")
         
-        # ------"Registrar Nuevo Alumno"----
-             st.subheader("Registrar Nuevo Alumno")
         with st.form("nuevo_alumno"):
             col1, col2 = st.columns(2)
             nom = col1.text_input("Nombre Completo *")
@@ -214,21 +214,21 @@ if modo == "⚙️ Administración General":
             
             if st.form_submit_button("Guardar Alumno"):
                 if nom and dni:
-                    # Chequeo de seguridad: ¿Existe el DNI?
-                    existe = session.query(Alumno).filter_by(dni=dni).first()
-                    if existe:
+                    # Verificamos si ya existe el DNI
+                    if session.query(Alumno).filter_by(dni=dni).first():
                         st.error("❌ Error: Ese DNI ya está registrado.")
                     else:
                         nuevo = Alumno(
                             nombre_completo=nom, 
                             año_escolar=anio,
-                            dni=dni,       # <--- Nuevo
-                            email=mail,    # <--- Nuevo
-                            telefono=tel   # <--- Nuevo
+                            dni=dni,
+                            email=mail,
+                            telefono=tel
                         )
                         session.add(nuevo)
                         session.commit()
                         st.success("✅ Alumno guardado exitosamente.")
+                        st.rerun()
                 else:
                     st.warning("⚠️ Nombre y DNI son obligatorios.")
     
@@ -332,6 +332,7 @@ elif modo == "📊 Dashboard & Chat IA":
                         st.write(res)
 
 session.close()
+
 
 
 
