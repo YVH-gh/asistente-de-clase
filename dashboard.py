@@ -171,7 +171,6 @@ if modo == "⚙️ Administración General":
                         st.rerun()
 
     with tab2: # Alumnos
-        with tab2: # Alumnos
         st.subheader("Gestión de Alumnos")
         
         # --- NUEVO: BOTÓN DE EXPORTACIÓN ---
@@ -333,5 +332,6 @@ elif modo == "📊 Dashboard & Chat IA":
                         st.write(res)
 
 session.close()
+
 
 
