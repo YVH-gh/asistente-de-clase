@@ -3,18 +3,40 @@ import pandas as pd
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
-from fpdf import FPDF  # Esto ahora usa fpdf2 gracias a requirements.txt
-from crear_base_datos import Alumno, Materia, Evaluacion
+from fpdf import FPDF
+# IMPORTANTE: Agregamos 'Base' para poder crear las tablas automáticamente
+from crear_base_datos import Base, Alumno, Materia, Evaluacion
 from modulo_ia_github import generar_recomendacion_ia, responder_chat_educativo
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Sistema Escolar 360", layout="wide", page_icon="🎓")
 
-# --- CONEXIÓN BASE DE DATOS ---
-# Usamos ruta relativa para que funcione en la nube y en local
-ruta_db = 'sistema_escolar.db'
-engine = create_engine(f'sqlite:///{ruta_db}')
+# --- CONEXIÓN BASE DE DATOS (HÍBRIDA: NUBE Y LOCAL) ---
+# Este es el bloque nuevo que te faltaba
+try:
+    # 1. Intentamos leer el secreto de la nube (Supabase)
+    database_url = st.secrets["DATABASE_URL"]
+    
+    # Parche: Supabase usa "postgres://" pero Python necesita "postgresql://"
+    if database_url.startswith("postgres://"):
+        database_url = database_url.replace("postgres://", "postgresql://", 1)
+    
+    # pool_pre_ping=True evita que la conexión se caiga si no se usa por un rato
+    engine = create_engine(database_url, pool_pre_ping=True)
+    
+except:
+    # 2. Si falla (estás en tu PC sin internet o sin secretos), usa el archivo local
+    ruta_db = 'sistema_escolar.db'
+    engine = create_engine(f'sqlite:///{ruta_db}')
+
 Session = sessionmaker(bind=engine)
+
+# --- AUTO-CREACIÓN DE TABLAS ---
+# Si te conectas a Supabase y está vacío, esto crea las tablas automáticamente
+try:
+    Base.metadata.create_all(engine)
+except Exception as e:
+    st.error(f"Error de conexión con Base de Datos: {e}")
 
 def get_session():
     return Session()
@@ -50,12 +72,10 @@ def password_entered():
 if not check_password():
     st.stop()
 
-# --- 2. FUNCIÓN PDF AVANZADA (Soporte Emojis y Tildes) ---
+# --- 2. FUNCIÓN PDF AVANZADA ---
 def crear_reporte_pdf(alumno, recomendaciones_ia_texto):
     class PDF(FPDF):
         def header(self):
-            # Intentamos cargar la fuente externa 'fuente.ttf'
-            # Si falla (porque no se subió el archivo), usa Helvetica estándar
             try:
                 self.add_font("MiFuente", "", "fuente.ttf")
                 self.set_font("MiFuente", "", 18)
@@ -73,25 +93,23 @@ def crear_reporte_pdf(alumno, recomendaciones_ia_texto):
     pdf = PDF()
     pdf.add_page()
     
-    # Configurar fuente para el cuerpo
     try:
         pdf.add_font("MiFuente", "", "fuente.ttf")
         pdf.set_font("MiFuente", "", 12)
     except:
         pdf.set_font("Helvetica", "", 12)
     
-    # DATOS DEL ALUMNO
+    # DATOS
     pdf.set_font(size=14, style="")
     pdf.cell(0, 10, f"Alumno: {alumno.nombre_completo}", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font(size=12)
     pdf.cell(0, 10, f"Año Escolar: {alumno.año_escolar}º Año", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(5)
     
-    # TABLA DE NOTAS
+    # TABLA
     pdf.set_font(size=12, style="")
     pdf.cell(0, 10, "Historial de Evaluaciones:", new_x="LMARGIN", new_y="NEXT")
     
-    # Encabezados
     pdf.set_fill_color(240, 240, 240)
     pdf.set_font(size=10)
     pdf.cell(40, 10, "Materia", border=1, fill=True, align='C')
@@ -99,12 +117,9 @@ def crear_reporte_pdf(alumno, recomendaciones_ia_texto):
     pdf.cell(20, 10, "Nota", border=1, fill=True, align='C')
     pdf.cell(80, 10, "Comentario", border=1, fill=True, align='C', new_x="LMARGIN", new_y="NEXT")
     
-    # Filas
     if alumno.evaluaciones:
         for ev in alumno.evaluaciones:
-            # Limpiamos saltos de linea en comentarios para que no rompan la tabla
             comentario_clean = ev.comentario.replace("\n", " ")[:50]
-            
             pdf.cell(40, 10, str(ev.materia.nombre)[:25], border=1)
             pdf.cell(50, 10, str(ev.instancia)[:30], border=1)
             pdf.cell(20, 10, str(ev.nota), border=1, align='C')
@@ -114,11 +129,10 @@ def crear_reporte_pdf(alumno, recomendaciones_ia_texto):
         
     pdf.ln(10)
 
-    # RECOMENDACIÓN IA
+    # IA
     pdf.set_font(size=12, style="")
     pdf.cell(0, 10, "Análisis del Asistente Virtual:", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font(size=11)
-    # Multi_cell escribe párrafos largos ajustando el texto
     pdf.multi_cell(0, 8, recomendaciones_ia_texto)
     
     pdf.ln(10)
@@ -126,7 +140,6 @@ def crear_reporte_pdf(alumno, recomendaciones_ia_texto):
     fecha = datetime.now().strftime("%d/%m/%Y")
     pdf.cell(0, 10, f"Generado el {fecha}", new_x="LMARGIN", new_y="NEXT")
 
-    # Retornamos los bytes del PDF
     return bytes(pdf.output())
 
 # --- NAVEGACIÓN ---
@@ -170,11 +183,10 @@ if modo == "⚙️ Administración General":
                         st.success("Eliminada.")
                         st.rerun()
 
-    # --- PESTAÑA 2: ALUMNOS ---
-    with tab2: 
+    with tab2: # Alumnos
         st.subheader("Gestión de Alumnos")
         
-        # 1. BOTÓN DE EXPORTACIÓN (CSV)
+        # EXPORTACIÓN
         alumnos_todos = session.query(Alumno).all()
         if alumnos_todos:
             data_export = [{
@@ -190,18 +202,11 @@ if modo == "⚙️ Administración General":
             
             col_exp1, col_exp2 = st.columns([3, 1])
             with col_exp2:
-                st.download_button(
-                    label="⬇️ Descargar Lista (CSV)",
-                    data=csv,
-                    file_name="Lista_Alumnos.csv",
-                    mime="text/csv",
-                )
+                st.download_button("⬇️ Descargar Lista (CSV)", data=csv, file_name="Lista_Alumnos.csv", mime="text/csv")
         st.divider()
 
-        # 2. FORMULARIO DE REGISTRO (Aquí estaba el error de indentación)
-        # Fíjate que este st.subheader está alineado con el st.subheader de arriba
+        # FORMULARIO NUEVO
         st.subheader("Registrar Nuevo Alumno")
-        
         with st.form("nuevo_alumno"):
             col1, col2 = st.columns(2)
             nom = col1.text_input("Nombre Completo *")
@@ -214,24 +219,22 @@ if modo == "⚙️ Administración General":
             
             if st.form_submit_button("Guardar Alumno"):
                 if nom and dni:
-                    # Verificamos si ya existe el DNI
-                    if session.query(Alumno).filter_by(dni=dni).first():
-                        st.error("❌ Error: Ese DNI ya está registrado.")
-                    else:
-                        nuevo = Alumno(
-                            nombre_completo=nom, 
-                            año_escolar=anio,
-                            dni=dni,
-                            email=mail,
-                            telefono=tel
-                        )
-                        session.add(nuevo)
-                        session.commit()
-                        st.success("✅ Alumno guardado exitosamente.")
-                        st.rerun()
+                    # Chequeo DNI
+                    try:
+                        if session.query(Alumno).filter_by(dni=dni).first():
+                            st.error("❌ Error: Ese DNI ya está registrado.")
+                        else:
+                            nuevo = Alumno(nombre_completo=nom, año_escolar=anio, dni=dni, email=mail, telefono=tel)
+                            session.add(nuevo)
+                            session.commit()
+                            st.success("✅ Alumno guardado exitosamente.")
+                            st.rerun()
+                    except Exception as e:
+                        # Si la tabla vieja en Supabase no tiene columna DNI, esto avisará
+                        st.error(f"Error de base de datos: {e}. (Sugerencia: Reinicia la DB en Supabase si cambiaste columnas)")
                 else:
                     st.warning("⚠️ Nombre y DNI son obligatorios.")
-    
+
     with tab3: # Notas
         try:
             alu = session.query(Alumno).all()
@@ -292,20 +295,16 @@ elif modo == "📊 Dashboard & Chat IA":
         # BOTÓN PDF
         if st.button("📄 Descargar Informe PDF"):
             with st.spinner("Generando análisis con IA..."):
-                # 1. Pedimos resumen a la IA
                 resumen = responder_chat_educativo(alumno.nombre_completo, str(notas), "Escribe una conclusión formal del rendimiento para los padres (máx 50 palabras).")
-                # 2. Creamos PDF
                 pdf_data = crear_reporte_pdf(alumno, resumen)
-                # 3. Botón descarga
                 st.download_button("⬇️ Guardar PDF", data=pdf_data, file_name=f"Informe_{alumno.nombre_completo}.pdf", mime="application/pdf")
 
-        # CONTENIDO PRINCIPAL
+        # CONTENIDO
         col_izq, col_der = st.columns([2, 1])
         
         with col_izq:
             st.subheader("Historial")
             if alumno.evaluaciones:
-                # Tabla simple
                 df = pd.DataFrame([{
                     "Fecha": e.fecha, 
                     "Materia": e.materia.nombre,
@@ -332,7 +331,3 @@ elif modo == "📊 Dashboard & Chat IA":
                         st.write(res)
 
 session.close()
-
-
-
-
