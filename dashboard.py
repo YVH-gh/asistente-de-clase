@@ -276,8 +276,8 @@ if modo == "⚙️ Administración General":
 # ==============================================================================
 # MODO 2: DASHBOARD + CHAT
 # ==============================================================================
-elif modo == "📊 Dashboard & Chat IA":
-    st.title("🎓 Dashboard del Alumno")
+elif modo == "Dashboard & Chat IA":
+    st.title("S. Dashboard ")
     alumnos = session.query(Alumno).all()
     if alumnos:
         seleccion = st.sidebar.selectbox("🔍 Buscar Alumno:", [a.nombre_completo for a in alumnos])
@@ -331,5 +331,6 @@ elif modo == "📊 Dashboard & Chat IA":
                         st.write(res)
 
 session.close()
+
 
 
