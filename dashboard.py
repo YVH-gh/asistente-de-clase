@@ -144,7 +144,7 @@ def crear_reporte_pdf(alumno, recomendaciones_ia_texto):
 
 # --- NAVEGACIÓN ---
 session = get_session()
-st.sidebar.title("🏫 Menú Principal")
+st.sidebar.title("Menú Principal")
 modo = st.sidebar.radio("Ir a:", ["📊 Dashboard & Chat IA", "⚙️ Administración General"])
 
 # ==============================================================================
@@ -152,7 +152,7 @@ modo = st.sidebar.radio("Ir a:", ["📊 Dashboard & Chat IA", "⚙️ Administra
 # ==============================================================================
 if modo == "⚙️ Administración General":
     st.title("⚙️ Panel de Control")
-    tab1, tab2, tab3, tab4 = st.tabs(["📚 Materias", "👤 Alumnos", "📝 Notas", "📂 Importar"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Materias", "Alumnos", "Notas", "Importar"])
 
     with tab1: # Materias
         st.subheader("Gestión de Materias")
@@ -331,4 +331,5 @@ elif modo == "📊 Dashboard & Chat IA":
                         st.write(res)
 
 session.close()
+
 
