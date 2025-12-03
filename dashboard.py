@@ -9,7 +9,7 @@ from crear_base_datos import Base, Alumno, Materia, Evaluacion
 from modulo_ia_github import generar_recomendacion_ia, responder_chat_educativo
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Sistema Escolar 360", layout="wide", page_icon="🎓")
+st.set_page_config(page_title="Sistema 360", layout="wide", page_icon="🎓")
 
 # --- CONEXIÓN BASE DE DATOS (HÍBRIDA: NUBE Y LOCAL) ---
 # Este es el bloque nuevo que te faltaba
@@ -331,3 +331,4 @@ elif modo == "📊 Dashboard & Chat IA":
                         st.write(res)
 
 session.close()
+
