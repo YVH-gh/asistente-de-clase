@@ -182,11 +182,11 @@ if modo == "⚙️ Administración General":
                         session.commit()
                         st.success("Eliminada.")
                         st.rerun()
-
-    with tab2: # Alumnos
+# --- PESTAÑA 2: ALUMNOS ---
+    with tab2: 
         st.subheader("Gestión de Alumnos")
         
-        # EXPORTACIÓN
+        # 1. BOTÓN DE EXPORTACIÓN
         alumnos_todos = session.query(Alumno).all()
         if alumnos_todos:
             data_export = [{
@@ -196,22 +196,20 @@ if modo == "⚙️ Administración General":
                 "Email": a.email,
                 "Teléfono": a.telefono
             } for a in alumnos_todos]
-            
             df_exp = pd.DataFrame(data_export)
             csv = df_exp.to_csv(index=False).encode('utf-8')
-            
             col_exp1, col_exp2 = st.columns([3, 1])
             with col_exp2:
                 st.download_button("⬇️ Descargar Lista (CSV)", data=csv, file_name="Lista_Alumnos.csv", mime="text/csv")
+        
         st.divider()
 
-        # FORMULARIO NUEVO
-        st.subheader("Registrar Nuevo Alumno")
+        # 2. FORMULARIO DE REGISTRO
+        st.write("➕ **Registrar Nuevo Alumno**")
         with st.form("nuevo_alumno"):
             col1, col2 = st.columns(2)
             nom = col1.text_input("Nombre Completo *")
             dni = col2.text_input("DNI *")
-            
             col3, col4, col5 = st.columns(3)
             anio = col3.number_input("Año Escolar", 1, 6)
             mail = col4.text_input("Email")
@@ -219,22 +217,82 @@ if modo == "⚙️ Administración General":
             
             if st.form_submit_button("Guardar Alumno"):
                 if nom and dni:
-                    # Chequeo DNI
                     try:
                         if session.query(Alumno).filter_by(dni=dni).first():
-                            st.error("❌ Error: Ese DNI ya está registrado.")
+                            st.error("❌ Error: Ese DNI ya existe.")
                         else:
                             nuevo = Alumno(nombre_completo=nom, año_escolar=anio, dni=dni, email=mail, telefono=tel)
                             session.add(nuevo)
                             session.commit()
-                            st.success("✅ Alumno guardado exitosamente.")
+                            st.success("✅ Alumno guardado.")
                             st.rerun()
                     except Exception as e:
-                        # Si la tabla vieja en Supabase no tiene columna DNI, esto avisará
-                        st.error(f"Error de base de datos: {e}. (Sugerencia: Reinicia la DB en Supabase si cambiaste columnas)")
+                        st.error(f"Error DB: {e}")
                 else:
-                    st.warning("⚠️ Nombre y DNI son obligatorios.")
+                    st.warning("⚠️ Nombre y DNI obligatorios.")
 
+        st.divider()
+
+        # 3. ZONA DE ELIMINACIÓN (LO NUEVO)
+        st.subheader("🗑️ Eliminar Alumnos")
+        with st.expander("⚠️ Abrir opciones de borrado (Cuidado: Acción irreversible)"):
+            modo_borrado = st.radio("Seleccione método:", ["Uno a Uno", "Por Año de Cursada", "Por Materia Asistida"])
+
+            # --- OPCIÓN A: UNO A UNO ---
+            if modo_borrado == "Uno a Uno":
+                lista_para_borrar = session.query(Alumno).all()
+                if lista_para_borrar:
+                    alu_borrar = st.selectbox("Seleccionar Alumno a Eliminar", [a.nombre_completo for a in lista_para_borrar])
+                    if st.button(f"🗑️ Eliminar a {alu_borrar}"):
+                        obj = session.query(Alumno).filter_by(nombre_completo=alu_borrar).first()
+                        # Borrado en Cascada manual
+                        for evaluacion in obj.evaluaciones:
+                            session.delete(evaluacion)
+                        session.delete(obj)
+                        session.commit()
+                        st.success("Alumno eliminado.")
+                        st.rerun()
+
+            # --- OPCIÓN B: POR AÑO ---
+            elif modo_borrado == "Por Año de Cursada":
+                anio_borrar = st.number_input("Seleccionar Año a vaciar", 1, 6)
+                candidatos = session.query(Alumno).filter_by(año_escolar=anio_borrar).all()
+                st.warning(f"⚠️ Se encontrarón {len(candidatos)} alumnos en {anio_borrar}º Año.")
+                
+                if candidatos and st.button(f"CONFIRMAR: Eliminar TODOS los de {anio_borrar}º Año"):
+                    for alu in candidatos:
+                        for evaluacion in alu.evaluaciones:
+                            session.delete(evaluacion)
+                        session.delete(alu)
+                    session.commit()
+                    st.success(f"Se eliminaron {len(candidatos)} alumnos.")
+                    st.rerun()
+
+            # --- OPCIÓN C: POR MATERIA ---
+            elif modo_borrado == "Por Materia Asistida":
+                st.info("ℹ️ Esto eliminará a todos los alumnos que tengan al menos una nota cargada en la materia seleccionada.")
+                materias = session.query(Materia).all()
+                if materias:
+                    mat_sel = st.selectbox("Seleccionar Materia", [m.nombre for m in materias])
+                    if st.button(f"Eliminar alumnos de {mat_sel}"):
+                        obj_materia = session.query(Materia).filter_by(nombre=mat_sel).first()
+                        # Buscamos alumnos que tengan evaluaciones en esta materia
+                        # Usamos un set para evitar duplicados si tienen 2 notas
+                        ids_alumnos = set([ev.alumno_id for ev in obj_materia.evaluaciones])
+                        
+                        contador = 0
+                        for id_a in ids_alumnos:
+                            alu = session.query(Alumno).get(id_a)
+                            if alu:
+                                for ev in alu.evaluaciones: # Borramos todas sus notas (incluso de otras materias)
+                                    session.delete(ev)
+                                session.delete(alu) # Borramos al alumno
+                                contador += 1
+                        
+                        session.commit()
+                        st.success(f"Se eliminaron {contador} alumnos que cursaban {mat_sel}.")
+                        st.rerun()
+    
     with tab3: # Notas
         try:
             alu = session.query(Alumno).all()
@@ -331,6 +389,7 @@ elif modo == "Dashboard & Chat IA":
                         st.write(res)
 
 session.close()
+
 
 
 
