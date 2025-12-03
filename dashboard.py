@@ -293,29 +293,61 @@ if modo == "⚙️ Administración General":
                         st.success(f"Se eliminaron {contador} alumnos que cursaban {mat_sel}.")
                         st.rerun()
     
-    with tab3: # Notas
+   # --- PESTAÑA 3: CARGA DE NOTAS (Optimizado) ---
+    with tab3:
         try:
+            # 1. Recuperamos las listas de la base de datos
             alu = session.query(Alumno).all()
             mat = session.query(Materia).all()
+            
             if alu and mat:
-                with st.form("nota"):
-                    ca, cm = st.columns(2)
-                    a_sel = ca.selectbox("Alumno", [x.nombre_completo for x in alu])
-                    m_sel = cm.selectbox("Materia", [x.nombre for x in mat])
-                    inst = st.text_input("Instancia")
-                    nota = st.number_input("Nota", 0.0, 10.0, step=0.5)
-                    com = st.text_area("Comentario")
-                    if st.form_submit_button("Guardar"):
+                st.subheader("Cargar Calificación")
+                
+                # --- CAMBIO CLAVE 1: Selectores FUERA del formulario ---
+                # Esto permite que queden fijos para cargar varias notas al mismo alumno/materia
+                # sin tener que seleccionarlos de nuevo.
+                col_sel_A, col_sel_B = st.columns(2)
+                a_sel = col_sel_A.selectbox("Seleccionar Alumno", [x.nombre_completo for x in alu])
+                m_sel = col_sel_B.selectbox("Seleccionar Materia", [x.nombre for x in mat])
+                
+                st.divider()
+                
+                # --- CAMBIO CLAVE 2: clear_on_submit=True ---
+                # Esto hará que Instancia, Nota y Comentario se borren solos al guardar
+                with st.form("nota_form", clear_on_submit=True):
+                    
+                    st.write(f"📝 Ingresando nota para: **{a_sel}** en **{m_sel}**")
+                    
+                    inst = st.text_input("Instancia Evaluación (Ej: TP 1, Parcial)")
+                    nota = st.number_input("Calificación (0-10)", min_value=0.0, max_value=10.0, step=0.5)
+                    com = st.text_area("Comentario / Feedback")
+                    
+                    submitted = st.form_submit_button("💾 Guardar Calificación")
+                    
+                    if submitted:
+                        # Buscamos los IDs correspondientes
                         obj_a = session.query(Alumno).filter_by(nombre_completo=a_sel).first()
                         obj_m = session.query(Materia).filter_by(nombre=m_sel).first()
-                        session.add(Evaluacion(alumno_id=obj_a.id, materia_id=obj_m.id, instancia=inst, nota=nota, comentario=com, fecha=datetime.now()))
+                        
+                        # Guardamos en BD
+                        nueva_evaluacion = Evaluacion(
+                            alumno_id=obj_a.id, 
+                            materia_id=obj_m.id, 
+                            instancia=inst, 
+                            nota=nota, 
+                            comentario=com, 
+                            fecha=datetime.now()
+                        )
+                        session.add(nueva_evaluacion)
                         session.commit()
-                        st.success("Nota guardada.")
+                        
+                        # Mensaje de éxito (desaparecerá rápido al recargar el form limpio)
+                        st.toast(f"✅ Nota guardada para {a_sel}!", icon="🎉")
             else:
-                st.warning("Carga alumnos y materias primero.")
-        except:
-            st.error("Error cargando listas.")
-
+                st.warning("⚠️ Primero debes cargar Alumnos y Materias en las pestañas anteriores.")
+        except Exception as e:
+            st.error(f"Error cargando el formulario: {e}")
+            
     with tab4: # Importar
         f = st.file_uploader("Excel (Nombre, Año)", type=["xlsx", "csv"])
         if f and st.button("Importar"):
@@ -389,6 +421,7 @@ elif modo == "Dashboard & Chat IA":
                         st.write(res)
 
 session.close()
+
 
 
 
