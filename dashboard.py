@@ -4,13 +4,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 from fpdf import FPDF
+# Importamos Base para auto-creación y las clases actualizadas
 from crear_base_datos import Base, Alumno, Materia, Evaluacion
 from modulo_ia_github import generar_recomendacion_ia, responder_chat_educativo
 
-# --- CONFIGURACIÓN ---
+# --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Sistema Escolar AI", layout="wide", page_icon="🧠")
 
-# --- CONEXIÓN DB ---
+# --- CONEXIÓN DB (SUPABASE + LOCAL) ---
 try:
     database_url = st.secrets["DATABASE_URL"]
     if database_url.startswith("postgres://"):
@@ -21,16 +22,16 @@ except:
     engine = create_engine(f'sqlite:///{ruta_db}')
 
 Session = sessionmaker(bind=engine)
-# Auto-creación de tablas (por si acaso)
+# Auto-creación de tablas (por si borraste todo en Supabase o es nuevo)
 try: Base.metadata.create_all(engine)
 except: pass
 
 def get_session(): return Session()
 
-# --- CSS ---
+# --- CSS PERSONALIZADO ---
 st.markdown("""<style>.stChatMessage {background-color: #f0f2f6; border-radius: 10px;}</style>""", unsafe_allow_html=True)
 
-# --- LOGIN ---
+# --- 1. SEGURIDAD (LOGIN) ---
 def check_password():
     if "PASSWORD_ACCESO" not in st.secrets: return True 
     if "password_correcta" not in st.session_state: st.session_state.password_correcta = False
@@ -47,7 +48,7 @@ def password_entered():
 
 if not check_password(): st.stop()
 
-# --- PDF ---
+# --- 2. GENERADOR PDF ---
 def crear_reporte_pdf(alumno, recomendaciones_ia_texto):
     class PDF(FPDF):
         def header(self):
@@ -80,110 +81,128 @@ def crear_reporte_pdf(alumno, recomendaciones_ia_texto):
     pdf.set_font(size=11); pdf.multi_cell(0, 8, recomendaciones_ia_texto)
     return bytes(pdf.output())
 
-# --- APP ---
+# --- NAVEGACIÓN ---
 session = get_session()
-st.sidebar.title("Menú")
+st.sidebar.title("🏫 Menú Escolar")
 modo = st.sidebar.radio("Ir a:", ["📊 Dashboard & Chat IA", "⚙️ Administración"])
 
+# ==============================================================================
+# MODO ADMINISTRACIÓN (CRUD COMPLETO)
+# ==============================================================================
 if modo == "⚙️ Administración":
-    st.title("⚙️ Administración")
-    tab1, tab2, tab3, tab4 = st.tabs(["📚 Materias (Knowledge Base)", "👤 Alumnos", "📝 Notas", "📂 Importar"])
+    st.title("⚙️ Panel de Control")
+    tab1, tab2, tab3, tab4 = st.tabs(["📚 Materias (Conocimiento)", "👤 Alumnos (ABM)", "📝 Cargar Notas", "📂 Importar"])
 
-    # --- PESTAÑA 1: MATERIAS CON BASE DE CONOCIMIENTO ---
+    # --- TAB 1: MATERIAS + PROGRAMA (Knowledge Base) ---
     with tab1:
-        st.subheader("Crear / Editar Materia")
+        st.subheader("Gestión de Materias y Bibliografía")
         c1, c2 = st.columns(2)
         
-        # Lógica de Edición/Creación unificada
+        # Selector para Editar o Crear
         materias_existentes = session.query(Materia).all()
-        nombres_mat = ["Nueva Materia..."] + [m.nombre for m in materias_existentes]
-        
+        nombres_mat = ["➕ Nueva Materia..."] + [m.nombre for m in materias_existentes]
         seleccion_mat = c1.selectbox("Seleccionar acción:", nombres_mat)
         
         with st.form("form_materia"):
-            if seleccion_mat == "Nueva Materia...":
-                nombre_val = ""
-                prof_val = ""
-                prog_val = ""
+            # Lógica para pre-llenar datos si es edición
+            if seleccion_mat == "➕ Nueva Materia...":
+                nombre_val, prof_val, prog_val = "", "", ""
             else:
                 obj_m = session.query(Materia).filter_by(nombre=seleccion_mat).first()
-                nombre_val = obj_m.nombre
-                prof_val = obj_m.profesor_titular
+                nombre_val, prof_val = obj_m.nombre, obj_m.profesor_titular
                 prog_val = obj_m.programa if obj_m.programa else ""
 
             nom = st.text_input("Nombre Materia", value=nombre_val)
-            prof = st.text_input("Profesor", value=prof_val)
+            prof = st.text_input("Profesor Titular", value=prof_val)
             
-            # --- AQUÍ ESTÁ EL CEREBRO NUEVO ---
-            st.caption("🧠 Base de Conocimiento para la IA")
-            prog = st.text_area("Programa y Bibliografía", value=prog_val, height=150, 
-                                help="Copia aquí los temas, libros o links que la IA debe usar para recomendar.")
+            # EL CEREBRO: Campo para el programa
+            st.caption("🧠 **Base de Conocimiento para la IA:**")
+            prog = st.text_area("Programa / Bibliografía / Temas Clave", value=prog_val, height=150, 
+                                placeholder="Ej: Unidad 1: Revolución Francesa. Libro recomendado: Hobsbawm.")
             
-            if st.form_submit_button("Guardar Cambios"):
-                if seleccion_mat == "Nueva Materia...":
+            if st.form_submit_button("💾 Guardar Cambios"):
+                if seleccion_mat == "➕ Nueva Materia...":
                     if not session.query(Materia).filter_by(nombre=nom).first():
                         session.add(Materia(nombre=nom, profesor_titular=prof, programa=prog))
-                        session.commit(); st.success("Creada!"); st.rerun()
+                        session.commit(); st.success("Materia Creada!"); st.rerun()
                     else: st.error("Ya existe.")
                 else:
-                    obj_m.nombre = nom
-                    obj_m.profesor_titular = prof
-                    obj_m.programa = prog
-                    session.commit(); st.success("Actualizada!"); st.rerun()
+                    obj_m.nombre = nom; obj_m.profesor_titular = prof; obj_m.programa = prog
+                    session.commit(); st.success("Materia Actualizada!"); st.rerun()
 
-    with tab2: # Alumnos
-        st.subheader("Gestión Alumnos")
-        # Exportar
+    # --- TAB 2: ALUMNOS (INCLUYE ELIMINAR) ---
+    with tab2: 
+        st.subheader("Gestión de Alumnos")
+        
+        # 1. Exportación CSV
         todos = session.query(Alumno).all()
         if todos:
             csv = pd.DataFrame([{"Nombre":a.nombre_completo, "DNI":a.dni, "Año":a.año_escolar} for a in todos]).to_csv(index=False).encode('utf-8')
-            st.download_button("⬇️ CSV", csv, "alumnos.csv", "text/csv")
+            col_exp1, col_exp2 = st.columns([3,1])
+            col_exp2.download_button("⬇️ Descargar CSV", csv, "alumnos.csv", "text/csv")
         
+        st.divider()
+
+        # 2. Formulario de Carga
+        st.write("➕ **Registrar Nuevo Alumno**")
         with st.form("new_alu"):
             c1, c2 = st.columns(2)
             n = c1.text_input("Nombre *"); d = c2.text_input("DNI *")
             c3, c4, c5 = st.columns(3)
             a = c3.number_input("Año", 1, 6); m = c4.text_input("Email"); t = c5.text_input("Tel")
+            
             if st.form_submit_button("Guardar"):
                 if n and d:
                     try:
                         if not session.query(Alumno).filter_by(dni=d).first():
                             session.add(Alumno(nombre_completo=n, dni=d, año_escolar=a, email=m, telefono=t))
                             session.commit(); st.success("Guardado!"); st.rerun()
-                        else: st.error("DNI existe")
+                        else: st.error("El DNI ya existe.")
                     except Exception as e: st.error(f"Error: {e}")
+                else: st.warning("Nombre y DNI obligatorios.")
 
-        with st.expander("🗑️ Borrar Alumno"):
+        st.divider()
+
+        # 3. ZONA DE PELIGRO (ELIMINAR)
+        st.subheader("🗑️ Eliminar Alumnos")
+        with st.expander("⚠️ Abrir opciones de borrado"):
             if todos:
-                del_a = st.selectbox("Eliminar:", [x.nombre_completo for x in todos])
-                if st.button("Borrar Definitivamente"):
-                    obj = session.query(Alumno).filter_by(nombre_completo=del_a).first()
+                a_del = st.selectbox("Eliminar a:", [x.nombre_completo for x in todos])
+                if st.button(f"Borrar Definitivamente a {a_del}"):
+                    obj = session.query(Alumno).filter_by(nombre_completo=a_del).first()
+                    # Borrado en cascada manual (primero notas, luego alumno)
                     for e in obj.evaluaciones: session.delete(e)
-                    session.delete(obj); session.commit(); st.success("Borrado."); st.rerun()
+                    session.delete(obj); session.commit(); st.success("Eliminado."); st.rerun()
 
-    with tab3: # Notas
+    # --- TAB 3: CARGA DE NOTAS (LIMPIEZA AUTOMÁTICA) ---
+    with tab3: 
         try:
             ls_a = session.query(Alumno).all()
             ls_m = session.query(Materia).all()
             if ls_a and ls_m:
+                st.subheader("Cargar Calificación")
                 c1, c2 = st.columns(2)
+                # Selectores FUERA del form para no resetearse
                 sa = c1.selectbox("Alumno", [x.nombre_completo for x in ls_a])
                 sm = c2.selectbox("Materia", [x.nombre for x in ls_m])
                 st.divider()
+                
                 with st.form("f_nota", clear_on_submit=True):
                     st.write(f"Nota para **{sa}** en **{sm}**")
-                    ins = st.text_input("Instancia")
+                    ins = st.text_input("Instancia (ej: Parcial 1)")
                     nt = st.number_input("Nota", 0.0, 10.0, step=0.5)
                     cm = st.text_area("Comentario")
-                    if st.form_submit_button("Guardar"):
+                    if st.form_submit_button("Guardar Nota"):
                         oa = session.query(Alumno).filter_by(nombre_completo=sa).first()
                         om = session.query(Materia).filter_by(nombre=sm).first()
                         session.add(Evaluacion(alumno_id=oa.id, materia_id=om.id, instancia=ins, nota=nt, comentario=cm, fecha=datetime.now()))
-                        session.commit(); st.toast("Guardado!")
+                        session.commit(); st.toast("✅ Nota Guardada!")
+            else: st.warning("Carga alumnos y materias primero.")
         except: st.error("Error cargando listas.")
 
-    with tab4: # Importar
-        f = st.file_uploader("Excel/CSV", type=["xlsx", "csv"])
+    # --- TAB 4: IMPORTAR ---
+    with tab4: 
+        f = st.file_uploader("Excel/CSV (Nombre, Año)", type=["xlsx", "csv"])
         if f and st.button("Importar"):
             try:
                 df = pd.read_excel(f) if f.name.endswith('xlsx') else pd.read_csv(f)
@@ -195,8 +214,11 @@ if modo == "⚙️ Administración":
                 session.commit(); st.success(f"Importados: {c}")
             except Exception as e: st.error(str(e))
 
-elif modo == "Dashboard & Chat IA":
-    st.title("Dashboard Inteligente")
+# ==============================================================================
+# MODO DASHBOARD + CHAT IA (RAG)
+# ==============================================================================
+elif modo == "📊 Dashboard & Chat IA":
+    st.title("🎓 Dashboard Inteligente")
     als = session.query(Alumno).all()
     if als:
         sel = st.sidebar.selectbox("Alumno:", [a.nombre_completo for a in als])
@@ -209,14 +231,14 @@ elif modo == "Dashboard & Chat IA":
         c1.metric("Alumno", alu.nombre_completo); c2.metric("Promedio", f"{p:.2f}"); c3.metric("Notas", len(nts))
         st.divider()
 
-        # PDF
+        # PDF REPORT
         if st.button("📄 Informe PDF"):
             with st.spinner("IA redactando..."):
-                # Pasamos contexto básico al reporte
                 res = responder_chat_educativo(alu.nombre_completo, str(nts), "Conclusión formal para padres (50 palabras).")
                 pdf = crear_reporte_pdf(alu, res)
                 st.download_button("⬇️ PDF", pdf, f"Reporte_{alu.nombre_completo}.pdf", "application/pdf")
 
+        # GRÁFICOS
         c_izq, c_der = st.columns([2, 1])
         with c_izq:
             if alu.evaluaciones:
@@ -224,6 +246,7 @@ elif modo == "Dashboard & Chat IA":
                 st.dataframe(df, use_container_width=True); st.line_chart(df.set_index("Fecha")["Nota"])
             else: st.info("Sin notas.")
 
+        # CHAT CONTEXTUAL (RAG)
         with c_der:
             st.subheader("💬 Chat Contextual")
             if "messages" not in st.session_state: st.session_state.messages = []
@@ -232,25 +255,26 @@ elif modo == "Dashboard & Chat IA":
             if q:
                 with st.chat_message("user"): st.write(q)
                 
-                # --- CONSTRUCCIÓN DEL CONTEXTO ENRIQUECIDO (RAG) ---
+                # --- CONSTRUCCIÓN DEL CONTEXTO (AQUÍ ESTÁ LA MAGIA) ---
                 ctx_notas = ""
                 ctx_programas = ""
                 materias_vistas = set()
 
                 for e in alu.evaluaciones:
                     ctx_notas += f"- {e.materia.nombre}: {e.nota} ({e.comentario})\n"
-                    # Si no hemos agregado el programa de esta materia aún, lo agregamos
+                    # Si la materia tiene programa y no lo hemos añadido aún al contexto
                     if e.materia.nombre not in materias_vistas and e.materia.programa:
-                        ctx_programas += f"\n📚 CONTEXTO DE {e.materia.nombre}:\n{e.materia.programa}\n---"
+                        ctx_programas += f"\n📚 DATOS DE {e.materia.nombre}:\n{e.materia.programa}\n---"
                         materias_vistas.add(e.materia.nombre)
                 
-                contexto_total = f"NOTAS DEL ALUMNO:\n{ctx_notas}\n\nPROGRAMAS DE ESTUDIO Y BIBLIOGRAFÍA:\n{ctx_programas}"
-                
+                contexto_total = f"CALIFICACIONES:\n{ctx_notas}\n\nBIBLIOGRAFÍA Y PROGRAMAS:\n{ctx_programas}"
                 if not ctx_notas: contexto_total = "El alumno no tiene notas."
 
                 with st.chat_message("assistant"):
-                    with st.spinner("Consultando bibliografía..."):
+                    with st.spinner("Analizando..."):
                         res = responder_chat_educativo(alu.nombre_completo, contexto_total, q)
                         st.write(res)
+    else:
+        st.warning("Base de datos vacía. Cargue alumnos en Administración.")
 
 session.close()
