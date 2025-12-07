@@ -44,6 +44,9 @@ class Materia(Base):
     nombre = Column(String, nullable=False) # Ej: "Historia", "Matemática"
     profesor_titular = Column(String)
     
+    # --- NUEVO CAMPO DE CONOCIMIENTO ---
+    programa = Column(Text) # Aquí guardaremos bibliografía y temas
+    
     evaluaciones = relationship("Evaluacion", back_populates="materia")
 
 class Evaluacion(Base):
@@ -87,4 +90,5 @@ if __name__ == "__main__":
     print("✅ ¡Base de datos 'sistema_escolar.db' creada con éxito!")
 
     print("   Se han creado las tablas: Alumnos, Materias, Evaluaciones, Recomendaciones.")
+
 
