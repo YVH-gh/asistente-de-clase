@@ -4,21 +4,33 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 from fpdf import FPDF
-# Importamos la librería para leer PDFs
-from pypdf import PdfReader
 from crear_base_datos import Base, Alumno, Materia, Evaluacion
 from modulo_ia_github import generar_recomendacion_ia, responder_chat_educativo
 
-# --- CONFIGURACIÓN DE PÁGINA ---
+# --- CONFIGURACIÓN DE PÁGINA (DEBE SER LA PRIMERA LÍNEA DE STREAMLIT) ---
 st.set_page_config(page_title="Sistema Escolar AI", layout="wide", page_icon="🧠")
+
+# --- CONTROL DE ERRORES DE LIBRERÍA ---
+try:
+    from pypdf import PdfReader
+except ImportError:
+    st.error("⚠️ ERROR CRÍTICO: No se encuentra la librería 'pypdf'.")
+    st.info("Solución: Agrega 'pypdf' en tu archivo requirements.txt en GitHub y reinicia la App.")
+    st.stop()
 
 # --- CONEXIÓN DB ---
 try:
-    database_url = st.secrets["DATABASE_URL"]
-    if database_url.startswith("postgres://"):
-        database_url = database_url.replace("postgres://", "postgresql://", 1)
-    engine = create_engine(database_url, pool_pre_ping=True)
-except:
+    if "DATABASE_URL" in st.secrets:
+        database_url = st.secrets["DATABASE_URL"]
+        if database_url.startswith("postgres://"):
+            database_url = database_url.replace("postgres://", "postgresql://", 1)
+        engine = create_engine(database_url, pool_pre_ping=True)
+    else:
+        st.warning("⚠️ Usando base de datos local (No hay conexión a Nube configurada)")
+        ruta_db = 'sistema_escolar.db'
+        engine = create_engine(f'sqlite:///{ruta_db}')
+except Exception as e:
+    st.error(f"Error de Conexión: {e}")
     ruta_db = 'sistema_escolar.db'
     engine = create_engine(f'sqlite:///{ruta_db}')
 
@@ -31,7 +43,7 @@ def get_session(): return Session()
 # --- CSS ---
 st.markdown("""<style>.stChatMessage {background-color: #f0f2f6; border-radius: 10px;}</style>""", unsafe_allow_html=True)
 
-# --- SEGURIDAD ---
+# --- LOGIN ---
 def check_password():
     if "PASSWORD_ACCESO" not in st.secrets: return True 
     if "password_correcta" not in st.session_state: st.session_state.password_correcta = False
@@ -88,7 +100,7 @@ if modo == "⚙️ Administración":
     st.title("⚙️ Administración")
     tab1, tab2, tab3, tab4 = st.tabs(["📚 Materias (Docs)", "👤 Alumnos", "📝 Notas", "📂 Importar"])
 
-    # --- TAB 1: MATERIAS + PDF UPLOAD (LO NUEVO) ---
+    # --- TAB 1: MATERIAS + PDF ---
     with tab1:
         st.subheader("Gestión de Materias y Documentos")
         c1, c2 = st.columns(2)
@@ -97,15 +109,15 @@ if modo == "⚙️ Administración":
         nombres_mat = ["➕ Nueva Materia..."] + [m.nombre for m in materias_existentes]
         seleccion_mat = c1.selectbox("Seleccionar acción:", nombres_mat)
         
-        # Variables iniciales
         nombre_val, prof_val, prog_val = "", "", ""
         obj_m = None
 
         if seleccion_mat != "➕ Nueva Materia...":
             obj_m = session.query(Materia).filter_by(nombre=seleccion_mat).first()
-            nombre_val = obj_m.nombre
-            prof_val = obj_m.profesor_titular
-            prog_val = obj_m.programa if obj_m.programa else ""
+            if obj_m:
+                nombre_val = obj_m.nombre
+                prof_val = obj_m.profesor_titular
+                prog_val = obj_m.programa if obj_m.programa else ""
 
         with st.form("form_materia"):
             nom = st.text_input("Nombre Materia", value=nombre_val)
@@ -113,10 +125,9 @@ if modo == "⚙️ Administración":
             
             st.divider()
             st.markdown("📚 **Base de Conocimiento (RAG)**")
-            st.caption("Sube los PDFs (Planificación, Libros, Apuntes). El sistema extraerá el texto automáticamente.")
             
-            # --- EXTRACTOR DE PDF ---
-            uploaded_pdfs = st.file_uploader("Subir documentos", type=["pdf"], accept_multiple_files=True)
+            # EXTRACTOR DE PDF
+            uploaded_pdfs = st.file_uploader("Subir PDFs (Planificación, Libros)", type=["pdf"], accept_multiple_files=True)
             texto_extraido_nuevo = ""
             
             if uploaded_pdfs:
@@ -127,28 +138,26 @@ if modo == "⚙️ Administración":
                         for page in reader.pages:
                             texto_pdf += page.extract_text() + "\n"
                         texto_extraido_nuevo += f"\n--- DOC: {pdf.name} ---\n{texto_pdf}\n"
-                        st.info(f"✅ Texto extraído de: {pdf.name}")
+                        st.success(f"✅ Leído: {pdf.name}")
                     except Exception as e:
-                        st.error(f"Error leyendo {pdf.name}: {e}")
+                        st.error(f"Error en {pdf.name}: {e}")
 
-            # Combinamos lo que ya había + lo nuevo
-            # Usamos un área de texto para que el profe pueda ver/editar lo que leyó la IA
             contenido_final = st.text_area(
-                "Contenido que leerá la IA (Editable):", 
+                "Contenido para la IA:", 
                 value=prog_val + texto_extraido_nuevo, 
-                height=200,
-                help="Aquí aparecerá el texto de los PDFs. Puedes borrar o corregir si es necesario."
+                height=200
             )
             
-            if st.form_submit_button("💾 Guardar Materia y Documentos"):
+            if st.form_submit_button("💾 Guardar"):
                 if seleccion_mat == "➕ Nueva Materia...":
                     if not session.query(Materia).filter_by(nombre=nom).first():
                         session.add(Materia(nombre=nom, profesor_titular=prof, programa=contenido_final))
                         session.commit(); st.success("Materia Creada!"); st.rerun()
                     else: st.error("Ya existe.")
                 else:
-                    obj_m.nombre = nom; obj_m.profesor_titular = prof; obj_m.programa = contenido_final
-                    session.commit(); st.success("Documentos Guardados!"); st.rerun()
+                    if obj_m:
+                        obj_m.nombre = nom; obj_m.profesor_titular = prof; obj_m.programa = contenido_final
+                        session.commit(); st.success("Guardado!"); st.rerun()
 
     with tab2: # Alumnos
         st.subheader("Gestión Alumnos")
@@ -171,10 +180,10 @@ if modo == "⚙️ Administración":
                         else: st.error("DNI existe")
                     except: st.error("Error DB")
 
-        with st.expander("🗑️ Borrar"):
+        with st.expander("🗑️ Opciones de Borrado"):
             if todos:
                 del_a = st.selectbox("Eliminar:", [x.nombre_completo for x in todos])
-                if st.button("Borrar"):
+                if st.button("Borrar Definitivamente"):
                     obj = session.query(Alumno).filter_by(nombre_completo=del_a).first()
                     for e in obj.evaluaciones: session.delete(e)
                     session.delete(obj); session.commit(); st.success("Borrado."); st.rerun()
@@ -197,7 +206,7 @@ if modo == "⚙️ Administración":
                         om = session.query(Materia).filter_by(nombre=sm).first()
                         session.add(Evaluacion(alumno_id=oa.id, materia_id=om.id, instancia=ins, nota=nt, comentario=cm, fecha=datetime.now()))
                         session.commit(); st.toast("Guardado!")
-        except: st.error("Error listas.")
+        except: st.error("Error cargando listas (¿Base vacía?)")
 
     with tab4: # Importar
         f = st.file_uploader("Excel/CSV", type=["xlsx", "csv"])
@@ -227,7 +236,7 @@ elif modo == "📊 Dashboard & Chat IA":
 
         if st.button("📄 Informe PDF"):
             with st.spinner("IA redactando..."):
-                res = responder_chat_educativo(alu.nombre_completo, str(nts), "Conclusión formal padres (50 palabras).")
+                res = responder_chat_educativo(alu.nombre_completo, str(nts), "Conclusión breve.")
                 pdf = crear_reporte_pdf(alu, res)
                 st.download_button("⬇️ PDF", pdf, f"Reporte_{alu.nombre_completo}.pdf", "application/pdf")
 
@@ -245,27 +254,25 @@ elif modo == "📊 Dashboard & Chat IA":
             if q:
                 with st.chat_message("user"): st.write(q)
                 
-                # --- RAG: CONTEXTO DE PDFs ---
+                # RAG
                 ctx_notas = ""
                 ctx_programas = ""
                 materias_vistas = set()
 
                 for e in alu.evaluaciones:
                     ctx_notas += f"- {e.materia.nombre}: {e.nota} ({e.comentario})\n"
-                    # Aquí la IA lee el texto extraído del PDF
                     if e.materia.nombre not in materias_vistas and e.materia.programa:
-                        # Limitamos a 4000 caracteres por materia para no saturar la IA
-                        texto_pdf_resumido = e.materia.programa[:4000] 
-                        ctx_programas += f"\n📚 DOCUMENTOS DE {e.materia.nombre}:\n{texto_pdf_resumido}\n---"
+                        texto_pdf_resumido = e.materia.programa[:4000]
+                        ctx_programas += f"\n📚 DOCS DE {e.materia.nombre}:\n{texto_pdf_resumido}\n---"
                         materias_vistas.add(e.materia.nombre)
                 
-                contexto_total = f"NOTAS:\n{ctx_notas}\n\nMATERIAL DE ESTUDIO (PDFs):\n{ctx_programas}"
-                if not ctx_notas: contexto_total = "Sin notas."
+                contexto_total = f"NOTAS:\n{ctx_notas}\n\nMATERIAL (PDFs):\n{ctx_programas}"
+                if not ctx_notas: contexto_total = "Sin información."
 
                 with st.chat_message("assistant"):
-                    with st.spinner("Leyendo documentos..."):
+                    with st.spinner("Analizando..."):
                         res = responder_chat_educativo(alu.nombre_completo, contexto_total, q)
                         st.write(res)
-    else: st.warning("Cargar alumnos.")
+    else: st.warning("Cargar alumnos primero.")
 
 session.close()
