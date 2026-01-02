@@ -81,7 +81,7 @@ def crear_reporte_pdf(alumno, recomendaciones_ia_texto):
 
 # --- APP ---
 session = get_session()
-st.sidebar.title("Menú")
+st.sidebar.title("🏫 Menú Escolar")
 modo = st.sidebar.radio("Ir a:", ["📊 Dashboard & Chat IA", "⚙️ Administración"])
 
 if modo == "⚙️ Administración":
@@ -212,8 +212,8 @@ if modo == "⚙️ Administración":
                 session.commit(); st.success(f"Importados: {c}")
             except: st.error("Error archivo")
 
-elif modo == "Dashboard & Chat IA":
-    st.title("Dashboard Inteligente")
+elif modo == "📊 Dashboard & Chat IA":
+    st.title("🎓 Dashboard Inteligente")
     als = session.query(Alumno).all()
     if als:
         sel = st.sidebar.selectbox("Alumno:", [a.nombre_completo for a in als])
@@ -269,4 +269,3 @@ elif modo == "Dashboard & Chat IA":
     else: st.warning("Cargar alumnos.")
 
 session.close()
-
